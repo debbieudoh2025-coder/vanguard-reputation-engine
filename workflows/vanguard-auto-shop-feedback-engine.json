@@ -1,0 +1,816 @@
+{
+  "name": "Vanguard Auto Shop - Feedback Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.8-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        560
+      ],
+      "id": "39abf82f-f9be-41c4-9d37-0d781b0a6fd0",
+      "name": "Google Gemini Chat Model"
+    },
+    {
+      "parameters": {
+        "tableId": "feedback",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "customer_id",
+              "fieldValue": "={{ $('CodeJS').item.json.customer_id }}"
+            },
+            {
+              "fieldId": "branch_location",
+              "fieldValue": "={{ $('Resolve Customer ID').item.json.branch_location }}"
+            },
+            {
+              "fieldId": "raw_feedback_text",
+              "fieldValue": "={{ $('INTAKE').item.json.body.submission.questions[3].value }}"
+            },
+            {
+              "fieldId": "sentiment_score",
+              "fieldValue": "={{ $('CodeJS').item.json.sentiment_score }}"
+            },
+            {
+              "fieldId": "severity_score",
+              "fieldValue": "={{ $('CodeJS').item.json.severity_score }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $('CodeJS').item.json.status }}"
+            },
+            {
+              "fieldId": "ai_draft_response",
+              "fieldValue": "={{ $('CodeJS').item.json.ai_draft_response }}"
+            },
+            {
+              "fieldId": "response_sent",
+              "fieldValue": "={{ $('CodeJS').item.json.response_sent }}"
+            },
+            {
+              "fieldId": "alert_status",
+              "fieldValue": "={{ $('CodeJS').item.json.alert_status }}"
+            },
+            {
+              "fieldId": "is_repeat_customer",
+              "fieldValue": "={{ $('CodeJS').item.json.is_repeat_customer }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $json.created_at }}"
+            },
+            {
+              "fieldId": "job_id",
+              "fieldValue": "={{ $('INTAKE').item.json.body.submission.questions[4].value }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2032,
+        624
+      ],
+      "id": "01fccbe1-4a7a-472f-a26a-dbeec4114b0e",
+      "name": "Create Feedback Row"
+    },
+    {
+      "parameters": {
+        "tableId": "customers",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $('INTAKE').item.json.body.submission.questions[0].value }}"
+            },
+            {
+              "fieldId": "email",
+              "fieldValue": "={{ $('INTAKE').item.json.body.submission.questions[1].value }}"
+            },
+            {
+              "fieldId": "branch_location",
+              "fieldValue": "={{ $('INTAKE').item.json.body.submission.questions[2].value }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        624,
+        672
+      ],
+      "id": "81e01811-a5fe-4656-97fc-54bd22621fda",
+      "name": "Create Customer Data"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an AI sentiment analysis assistant for Vanguard Auto Shop. Read the customer's feedback text only. You do not know anything about this customer's past visits — do not guess or assume repeat visits. Just score the message in front of you. Return a strict JSON object with no markdown fences, no extra words, nothing before or after the JSON.\n\nImportant: if the customer describes a specific problem with the service or their visit (a delay, a wait, something not done correctly, damage, etc.), treat the feedback as negative — even if they are also polite about staff or say something positive about the people involved. Praise for staff does not cancel out a stated complaint about the service itself. Only treat feedback as positive if there is no real complaint being described.\n\nRules for Classification:\n1. Positive Feedback (no complaint about the service itself — compliments, satisfaction, no issues mentioned) -> status_suggestion = \"READY_TO_POST\", severity_score = 1 to 2.\n2. Mild Negative Feedback (a specific but minor complaint is mentioned — wait times, slight delays, small annoyance — even if paired with polite or positive comments about staff) -> status_suggestion = \"PRIVATE_QUEUE\", severity_score = 1 to 3.\n3. Severe/Critical Feedback (vehicle damage, safety hazards, rude behavior, legal or financial threats) -> status_suggestion = \"ESCALATED_MANAGER\", severity_score = 4 to 5.\n4. Ambiguous or Unclear Feedback (you genuinely cannot tell if it is positive or negative) -> is_ambiguous = true, status_suggestion = \"FLAGGED_HUMAN_REVIEW\".\n\nOnly write ai_draft_response if the feedback is negative (rule 2 or rule 3). For positive feedback, leave ai_draft_response as an empty string.\n\nReturn ONLY a JSON object with this exact structure:\n{\n  \"sentiment_score\": <number between -10 and 10>,\n  \"severity_score\": <number between 1 and 5>,\n  \"status_suggestion\": \"<READY_TO_POST | PRIVATE_QUEUE | ESCALATED_MANAGER | FLAGGED_HUMAN_REVIEW>\",\n  \"is_ambiguous\": <boolean>,\n  \"ai_draft_response\": \"<A polite, professional response draft suited to the context, or empty string if feedback is positive>\"\n}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "={{ $('INTAKE').item.json.body.submission.questions[3].value }}"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        992,
+        320
+      ],
+      "id": "9b19771c-84e7-4cc1-91ad-8830f0496307",
+      "name": "AI Sentiment"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Get AI Sentiment output safely\nlet aiData = {};\ntry {\n  aiData = $('AI Sentiment').first()?.json || {};\n} catch (e) {\n  aiData = $input.all()?.[0]?.json || {};\n}\n\n// Clean and extract raw AI response\nconst rawText = aiData.text || aiData.output || aiData.response || aiData.content || \"\";\nconst cleanedText = typeof rawText === 'string' ? rawText.replace(/```json/g, \"\").replace(/```/g, \"\").trim() : \"\";\n\n// Default values\nlet sentimentScore = -2;\nlet severityScore = 2;\nlet aiDraftResponse = \"\";\nlet statusSuggestion = \"PRIVATE_QUEUE\";\nlet isAmbiguous = false;\n\nif (cleanedText) {\n  try {\n    const parsed = JSON.parse(cleanedText);\n    if (parsed.sentiment_score !== undefined) sentimentScore = Number(parsed.sentiment_score);\n    if (parsed.severity_score !== undefined) severityScore = Number(parsed.severity_score);\n    aiDraftResponse = parsed.ai_draft_response || parsed.ai_response || parsed.draft_response || parsed.response || parsed.suggested_reply || \"\";\n    if (parsed.status_suggestion) statusSuggestion = parsed.status_suggestion;\n    if (parsed.is_ambiguous) isAmbiguous = parsed.is_ambiguous;\n  } catch (e) {\n    // fallback to defaults above\n  }\n}\n\n// 2. Get customer info from Resolve Customer ID (works for both new and existing customers)\nlet customerId = null;\nlet hasPreviousNegative = false;\ntry {\n  const customerData = $('Resolve Customer ID').first()?.json || {};\n  customerId = customerData.customer_id || null;\n  hasPreviousNegative = customerData.has_previous_negative === true;\n} catch (e) {\n  customerId = null;\n  hasPreviousNegative = false;\n}\n\n// 3. Repeat customer = based entirely on the database flag now, no keyword guessing\nconst isRepeatCustomer = hasPreviousNegative;\n\n// 4. Routing logic — positive feedback is checked FIRST, so a repeat-negative\n// customer leaving genuinely positive feedback still gets Ready to Post,\n// not escalated by mistake.\nlet finalStatus = \"PRIVATE_QUEUE\";\n\nif (statusSuggestion === \"READY_TO_POST\" && sentimentScore > 2 && !isAmbiguous) {\n  // Rule 1: Genuinely positive feedback always goes here, even for repeat customers\n  finalStatus = \"READY_TO_POST\";\n} else if (isAmbiguous) {\n  // Rule 2: Unclear feedback goes to human review\n  finalStatus = \"FLAGGED_HUMAN_REVIEW\";\n} else if (isRepeatCustomer) {\n  // Rule 3: Not positive, and this customer has a negative history — escalate regardless of this message's severity\n  finalStatus = \"ESCALATED_MANAGER\";\n} else if (severityScore >= 4 || statusSuggestion === \"ESCALATED_MANAGER\") {\n  // Rule 4: First-time but severe feedback also escalates\n  finalStatus = \"ESCALATED_MANAGER\";\n} else {\n  // Rule 5: Everything else (mild negative, first-time) sits in the private queue\n  finalStatus = \"PRIVATE_QUEUE\";\n}\n\nreturn [{\n  json: {\n    customer_id: customerId,\n    sentiment_score: sentimentScore,\n    severity_score: severityScore,\n    ai_draft_response: aiDraftResponse,\n    status: finalStatus,\n    status_suggestion: finalStatus,\n    alert_status: finalStatus === \"ESCALATED_MANAGER\" ? \"OPEN\" : \"RESOLVED\",\n    response_sent: false,\n    is_repeat_customer: isRepeatCustomer,\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        480
+      ],
+      "id": "040aeef5-b6aa-4d0a-8758-9aede0072108",
+      "name": "CodeJS"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "customers",
+        "limit": 1,
+        "orderBy": "created_at",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email",
+              "condition": "eq",
+              "keyValue": "={{ $json.body.submission.questions[1].value }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        304
+      ],
+      "id": "e35e55a1-7e2d-436a-9f0a-0f99b2de006a",
+      "name": "Supabase Customer Lookup",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0d62d126-4431-40c5-96db-a47cfd485d14",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        512
+      ],
+      "id": "14fed3c1-f050-44ec-aacf-95f44af51b60",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ad4fc34c-139e-4794-9ce4-6ec42d1a7f09",
+              "name": "customer_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "569d9a9a-b809-473a-9a25-fdaf966533a3",
+              "name": "name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "a7425dd4-5f88-4da3-8d62-d08d5b9f3aaf",
+              "name": "email",
+              "value": "={{ $json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "77cddef5-479f-4c29-9d5e-9909f9c00546",
+              "name": "branch_location",
+              "value": "={{ $json.branch_location }}",
+              "type": "string"
+            },
+            {
+              "id": "14cd1360-ec0d-430f-b81c-45f2abbc9e26",
+              "name": "has_previous_negative",
+              "value": "={{ $json.has_previous_negative }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        800,
+        496
+      ],
+      "id": "eb36ba63-77cb-4f0e-94f0-47be7650fe23",
+      "name": "Resolve Customer ID"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vanguard-feedback",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        512
+      ],
+      "id": "89068f1b-2c32-446e-9a18-dfb7421a14c7",
+      "name": "INTAKE"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "customers",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.customer_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "has_previous_negative",
+              "fieldValue": "TRUE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        480
+      ],
+      "id": "0d7d9956-8618-4e77-b642-1e356f950d50",
+      "name": "Update Customer Flag"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2cb935dd-b9c1-4ea8-9e6e-dcff2e0cd911",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "PRIVATE_QUEUE",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "c739f29f-a561-4ba8-beda-86565edf30a7",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ESCALATED_MANAGER",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1568,
+        608
+      ],
+      "id": "7aa75b44-b522-4263-a7c8-e760816309d1",
+      "name": "Is Negative Feedback?"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vanguard-jobcompleted",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        48
+      ],
+      "id": "ac09f82d-cd0a-4f37-a7d2-c51764baa83d",
+      "name": "JOB COMPLETED"
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        48
+      ],
+      "id": "c7ed8b8f-76d7-46fa-b676-5ec447161180",
+      "name": "Wait"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.customer_email }}",
+        "subject": "=How Was Your Visit,{{ $json.customer_name }}?",
+        "message": "=<!-- Vanguard Auto Shop - premium customer feedback email for n8n Gmail HTML -->\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:0;padding:0;background:#f1efeb;font-family:Arial,Helvetica,sans-serif;color:#20252b;\">\n  <tr>\n    <td align=\"center\" style=\"padding:24px 12px;background:#f1efeb;\">\n      <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:620px;background:#ffffff;overflow:hidden;\">\n\n        <tr>\n          <td style=\"height:5px;background:#f05a24;font-size:0;line-height:0;\">&nbsp;</td>\n        </tr>\n\n        <!-- Brand Header -->\n        <tr>\n          <td style=\"padding:28px 34px 26px;background:#17191c;\">\n            <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n              <tr>\n                <td valign=\"middle\" style=\"width:220px;\">\n                  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                    <tr>\n                      <td valign=\"middle\" style=\"color:#f05a24;font-family:'Arial Black','Trebuchet MS',Arial,Helvetica,sans-serif;font-size:30px;line-height:32px;font-weight:900;font-style:italic;letter-spacing:-1px;text-shadow:2px 2px 0 #8f2e16;\">VANGUARD</td>\n                      <td valign=\"bottom\" style=\"padding:0 0 4px 10px;color:#f6f2eb;font-size:9px;line-height:1.1;font-weight:700;letter-spacing:2.3px;\">AUTO<br>SHOP</td>\n                    </tr>\n                  </table>\n                </td>\n                <td valign=\"middle\" align=\"right\" style=\"color:#9da2a5;font-size:10px;line-height:1.7;font-weight:700;letter-spacing:1.7px;text-transform:uppercase;\">SERVICE<br>TRUST<br>PERFORMANCE</td>\n              </tr>\n            </table>\n          </td>\n        </tr>\n\n        <!-- Hero -->\n        <tr>\n          <td style=\"padding:51px 52px 45px;background:#fbf7f0;border-bottom:1px solid #e9e1d7;text-align:center;\">\n            <div style=\"color:#f05a24;font-size:10px;line-height:1.4;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;\">CUSTOMER EXPERIENCE / 01</div>\n            <h1 style=\"margin:18px 0;color:#20252b;font-family:Georgia,'Times New Roman',serif;font-size:38px;line-height:1.08;font-weight:700;letter-spacing:-.8px;\">Your experience<br>drives our standard.</h1>\n            <p style=\"max-width:430px;margin:0 auto;color:#5d6469;font-size:16px;line-height:1.7;\">We'd love to hear how your visit went. Your honest feedback helps Vanguard Auto Shop make every service better.</p>\n          </td>\n        </tr>\n\n        <!-- Message -->\n        <tr>\n          <td style=\"padding:37px 52px 29px;background:#ffffff;\">\n            <p style=\"margin:0;color:#252a2e;font-size:16px;line-height:1.75;\">Dear <strong>{{ $json.customer_name }}</strong>,</p>\n            <p style=\"margin:17px 0 0;color:#5d6469;font-size:15px;line-height:1.78;\">Thank you for trusting us with your vehicle. We want to make sure your <strong style=\"color:#20252b;\">{{ $json.service_type }}</strong> visit at our <strong style=\"color:#20252b;\">{{ $json.branch_location }}</strong> branch matched the Vanguard standard.</p>\n          </td>\n        </tr>\n\n        <!-- Service Details -->\n        <tr>\n          <td style=\"padding:0 52px 31px;background:#ffffff;\">\n            <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-top:1px solid #e9e1d7;border-bottom:1px solid #e9e1d7;\">\n              <tr>\n                <td width=\"50%\" valign=\"top\" style=\"padding:18px 16px 18px 0;border-right:1px solid #e9e1d7;\">\n                  <div style=\"color:#f05a24;font-size:9px;line-height:1.4;font-weight:700;letter-spacing:1.9px;text-transform:uppercase;\">SERVICE</div>\n                  <div style=\"margin-top:7px;color:#20252b;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.3;font-weight:700;\">{{ $json.service_type }}</div>\n                </td>\n                <td width=\"50%\" valign=\"top\" style=\"padding:18px 0 18px 16px;\">\n                  <div style=\"color:#f05a24;font-size:9px;line-height:1.4;font-weight:700;letter-spacing:1.9px;text-transform:uppercase;\">LOCATION</div>\n                  <div style=\"margin-top:7px;color:#20252b;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:1.3;font-weight:700;\">{{ $json.branch_location }}</div>\n                </td>\n              </tr>\n            </table>\n          </td>\n        </tr>\n\n        <!-- Feedback Button -->\n        <tr>\n          <td style=\"padding:5px 52px 43px;background:#ffffff;text-align:center;\">\n            <a href=\"{{ 'https://forms.fillout.com/t/YOUR_FORM_ID?JOBID=' + encodeURIComponent($json.id) }}\" style=\"display:inline-block;padding:16px 30px;background:#f05a24;color:#ffffff;border-radius:3px;font-size:14px;line-height:1.2;font-weight:700;letter-spacing:.2px;text-align:center;text-decoration:none;\">Share Your Feedback &nbsp;→</a>\n            <div style=\"margin-top:15px;color:#8a8f92;font-size:11px;line-height:1.6;\">Takes less than a minute&nbsp; · &nbsp;No login required</div>\n          </td>\n        </tr>\n\n        <!-- Footer -->\n        <tr>\n          <td style=\"padding:27px 34px 30px;background:#17191c;color:#aeb2b3;font-size:11px;line-height:1.8;\">\n            <strong style=\"color:#f6f2eb;font-family:Georgia,'Times New Roman',serif;font-size:16px;letter-spacing:.2px;\">VANGUARD AUTO SHOP</strong>\n            <br>Service · Trust · Performance\n            <br><span style=\"color:#f05a24;\">Thank you for helping us keep the standard high.</span>\n          </td>\n        </tr>\n\n      </table>\n    </td>\n  </tr>\n</table>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        48
+      ],
+      "id": "47e53780-2528-4130-adf3-3ea2be62b917",
+      "name": "Send Feedback Request Email"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "jobs",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Create Job Row').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_sent",
+              "fieldValue": "TRUE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        944,
+        48
+      ],
+      "id": "1995bb0c-2ddc-4695-a889-81b17268de59",
+      "name": "Update a row"
+    },
+    {
+      "parameters": {
+        "tableId": "jobs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "customer_name",
+              "fieldValue": "={{ $json.body.submission.questions[0].value }}"
+            },
+            {
+              "fieldId": "customer_email",
+              "fieldValue": "={{ $json.body.submission.questions[1].value }}"
+            },
+            {
+              "fieldId": "branch_location",
+              "fieldValue": "={{ $json.body.submission.questions[2].value }}"
+            },
+            {
+              "fieldId": "service_type",
+              "fieldValue": "={{ $json.body.submission.questions[3].value }}"
+            },
+            {
+              "fieldId": "service_description",
+              "fieldValue": "={{ $json.body.submission.questions[4].value }}"
+            },
+            {
+              "fieldId": "staff_name",
+              "fieldValue": "={{ $json.body.submission.questions[5].value }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        272,
+        48
+      ],
+      "id": "e5ecc7eb-5b46-4cda-bd30-49f73ec7006e",
+      "name": "Create Job Row"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vanguard-response",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        16,
+        880
+      ],
+      "id": "370101f2-0be9-4b76-8af5-8e7763df36f1",
+      "name": "RESPONSE REQUEST"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.body.customer_email }}",
+        "subject": "Re: Your Feedback To Vanguard Auto Shop",
+        "message": "=<!-- Vanguard Auto Shop - customer response email for n8n Gmail HTML -->\n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"margin:0;padding:0;background:#f1efeb;font-family:Arial,Helvetica,sans-serif;color:#20252b;\">\n  <tr>\n    <td align=\"center\" style=\"padding:24px 12px;background:#f1efeb;\">\n      <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width:620px;background:#ffffff;overflow:hidden;\">\n\n        <tr>\n          <td style=\"height:5px;background:#f05a24;font-size:0;line-height:0;\">&nbsp;</td>\n        </tr>\n\n        <!-- Brand Header -->\n        <tr>\n          <td style=\"padding:28px 34px 26px;background:#17191c;\">\n            <table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n              <tr>\n                <td valign=\"middle\" style=\"width:220px;\">\n                  <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                    <tr>\n                      <td valign=\"middle\" style=\"color:#f05a24;font-family:'Arial Black','Trebuchet MS',Arial,Helvetica,sans-serif;font-size:30px;line-height:32px;font-weight:900;font-style:italic;letter-spacing:-1px;text-shadow:2px 2px 0 #8f2e16;\">VANGUARD</td>\n                      <td valign=\"bottom\" style=\"padding:0 0 4px 10px;color:#f6f2eb;font-size:9px;line-height:1.1;font-weight:700;letter-spacing:2.3px;\">AUTO<br>SHOP</td>\n                    </tr>\n                  </table>\n                </td>\n                <td valign=\"middle\" align=\"right\" style=\"color:#9da2a5;font-size:10px;line-height:1.7;font-weight:700;letter-spacing:1.7px;text-transform:uppercase;\">SERVICE<br>TRUST<br>PERFORMANCE</td>\n              </tr>\n            </table>\n          </td>\n        </tr>\n\n        <!-- Hero -->\n        <tr>\n          <td style=\"padding:51px 52px 45px;background:#fbf7f0;border-bottom:1px solid #e9e1d7;text-align:center;\">\n            <div style=\"color:#f05a24;font-size:10px;line-height:1.4;font-weight:700;letter-spacing:2.8px;text-transform:uppercase;\">CUSTOMER RESPONSE</div>\n            <h1 style=\"margin:18px 0;color:#20252b;font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:1.12;font-weight:700;letter-spacing:-.8px;\">We heard you.</h1>\n            <p style=\"max-width:430px;margin:0 auto;color:#5d6469;font-size:16px;line-height:1.7;\">Thank you for taking the time to share your feedback with Vanguard Auto Shop.</p>\n          </td>\n        </tr>\n\n        <!-- Response Message -->\n        <tr>\n          <td style=\"padding:37px 52px 43px;background:#ffffff;\">\n            <p style=\"margin:0;color:#252a2e;font-size:16px;line-height:1.75;\">Dear <strong>Valued Customer</strong>,</p>\n            <p style=\"margin:17px 0 0;color:#5d6469;font-size:15px;line-height:1.85;white-space:pre-line;\">{{ $json.body.response_text }}</p>\n          </td>\n        </tr>\n\n        <!-- Footer -->\n        <tr>\n          <td style=\"padding:27px 34px 30px;background:#17191c;color:#aeb2b3;font-size:11px;line-height:1.8;\">\n            <strong style=\"color:#f6f2eb;font-family:Georgia,'Times New Roman',serif;font-size:16px;letter-spacing:.2px;\">VANGUARD AUTO SHOP</strong>\n            <br>Service · Trust · Performance\n            <br><span style=\"color:#f05a24;\">Thank you for helping us keep the standard high.</span>\n          </td>\n        </tr>\n\n      </table>\n    </td>\n  </tr>\n</table>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        336,
+        880
+      ],
+      "id": "dff63150-312c-4fb4-b9e2-0af84e3a6874",
+      "name": "Send Response Email"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "feedback",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('RESPONSE REQUEST').item.json.body.feedback_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "response_sent",
+              "fieldValue": "TRUE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        592,
+        880
+      ],
+      "id": "51366807-289c-4200-b776-0de0b41aab51",
+      "name": "Supabase Update"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a4112ea2-f553-4187-ad39-850773f44a99",
+              "leftValue": "={{ $json.alert_status }}",
+              "rightValue": "OPEN",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        880
+      ],
+      "id": "46f2fe3e-0036-4781-9491-999bb11b3699",
+      "name": "Is Manager Escalation?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "feedback",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "alert_status",
+              "fieldValue": "RESOLVED"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1232,
+        784
+      ],
+      "id": "64d4e79b-c172-435e-beb0-79e35abdc75a",
+      "name": "Mark Alert Resolved"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Sentiment",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Customer Data": {
+      "main": [
+        [
+          {
+            "node": "Resolve Customer ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Sentiment": {
+      "main": [
+        [
+          {
+            "node": "CodeJS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CodeJS": {
+      "main": [
+        [
+          {
+            "node": "Is Negative Feedback?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Customer Lookup": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Resolve Customer ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Customer Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Customer ID": {
+      "main": [
+        [
+          {
+            "node": "AI Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "INTAKE": {
+      "main": [
+        [
+          {
+            "node": "Supabase Customer Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer Flag": {
+      "main": [
+        [
+          {
+            "node": "Create Feedback Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Negative Feedback?": {
+      "main": [
+        [
+          {
+            "node": "Update Customer Flag",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Feedback Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JOB COMPLETED": {
+      "main": [
+        [
+          {
+            "node": "Create Job Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Send Feedback Request Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Feedback Request Email": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Job Row": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RESPONSE REQUEST": {
+      "main": [
+        [
+          {
+            "node": "Send Response Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Response Email": {
+      "main": [
+        [
+          {
+            "node": "Supabase Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Update": {
+      "main": [
+        [
+          {
+            "node": "Is Manager Escalation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Manager Escalation?": {
+      "main": [
+        [
+          {
+            "node": "Mark Alert Resolved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
