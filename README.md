@@ -4,9 +4,9 @@ An n8n system that asks customers for feedback after a service visit, scores eac
 
 I built this as my capstone project at TS Academy. Vanguard Auto Shop is a case study from the course, and all data in this project is sample data.
 
-![Workflow canvas](<img width="1411" height="621" alt="canvas png" src="https://github.com/user-attachments/assets/21dea700-bf46-4dbf-9d38-a7af098383ae" />
+(<img width="1411" height="621" alt="canvas png" src="https://github.com/user-attachments/assets/21dea700-bf46-4dbf-9d38-a7af098383ae" />
 )
-![Dashboard](<img width="1763" height="823" alt="dashboard png" src="https://github.com/user-attachments/assets/80431ad3-2ffc-4d3e-9a86-04dbd290fe24" />
+(<img width="1763" height="823" alt="dashboard png" src="https://github.com/user-attachments/assets/80431ad3-2ffc-4d3e-9a86-04dbd290fe24" />
 )
 
 ## The problem
